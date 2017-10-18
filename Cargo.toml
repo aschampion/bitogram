@@ -5,4 +5,5 @@ authors = ["Andrew Champion <andrew.champion@gmail.com>"]
 
 [dependencies]
 image = "*"
+rayon = "0.8.2"
 

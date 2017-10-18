@@ -1,29 +1,46 @@
 extern crate image;
+extern crate rayon;
+
+use rayon::prelude::*;
 
 use std::env;
 use std::fs::File;
 use std::io::BufReader;
+use std::sync::{Arc, Mutex};
 
 use image::ImageDecoder;
 
 fn main() {
-    let mut counts: [[u64; 2]; 16] = [[0, 0]; 16];
+    let counts: Arc<Mutex<[[u64; 2]; 16]>> = Arc::new(Mutex::new([[0, 0]; 16]));
 
-    for arg in env::args().skip(1) {
-        let fin = File::open(&arg).unwrap();
-        let fin = BufReader::new(fin);
+    env::args()
+        .skip(1)
+        .collect::<Vec<String>>()
+        .par_iter()
+        .for_each(|arg| {
+            let fin = File::open(&arg).unwrap();
+            let fin = BufReader::new(fin);
 
-        let mut decoder = image::tiff::TIFFDecoder::new(fin).unwrap();
+            let mut decoder = image::tiff::TIFFDecoder::new(fin).unwrap();
 
-        println!("Processing {}, dimensions {:?}", arg, decoder.dimensions());
+            println!("Processing {}, dimensions {:?}", arg, decoder.dimensions());
 
-        match decoder.read_image().unwrap() {
-            image::DecodingResult::U8(img) => count_bin_histogram(img, &mut counts),
-            image::DecodingResult::U16(img) => count_bin_histogram(img, &mut counts),
-        }
-    }
+            let mut img_counts: [[u64; 2]; 16] = [[0, 0]; 16];
+            match decoder.read_image().unwrap() {
+                image::DecodingResult::U8(img) => count_bin_histogram(img, &mut img_counts),
+                image::DecodingResult::U16(img) => count_bin_histogram(img, &mut img_counts),
+            }
 
-    let (zeros, ones): (Vec<u64>, Vec<u64>) = counts.into_iter().map(|v| (v[0], v[1])).unzip();
+            let mut shared_counts = counts.lock().unwrap();
+            for (sc, ic) in shared_counts.iter_mut().zip(&img_counts) {
+                sc[0] += ic[0];
+                sc[1] += ic[1];
+            }
+        });
+
+    let shared_counts = counts.lock().unwrap();
+    let (zeros, ones): (Vec<u64>, Vec<u64>) =
+        shared_counts.into_iter().map(|v| (v[0], v[1])).unzip();
 
     println!("1s: {:?}", ones);
     println!("0s: {:?}", zeros);
